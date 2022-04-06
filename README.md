@@ -166,6 +166,7 @@ service monit restart
 
 Get latest node height: 
 `curl -s localhost:26657/status | jq .result.sync_info`
+
 Get  node's peers count: 
 `curl -s localhost:26657/net_info | jq '.result.peers | length'`
 
