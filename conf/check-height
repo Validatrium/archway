@@ -1,0 +1,2 @@
+check program 'Height is changing' with path "/bin/bash -c '/root/archway/height.sh'"
+        if status != 0 then exec "/root/archway/bin/monit2telegram"
