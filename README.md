@@ -2,21 +2,10 @@
 
 Created by [Validatrium](https://validatrium.com)
 
-This guide is about how to run archway node as a common cosmos-sdk based app. 
-That's the reason we're running node as a service. 
-
-# Links
-- explorer: https://explorer.augusta-1.archway.tech/
-- rpc: https://rpc.augusta-1.archway.tech/
-- snapshot: https://snap.validatrium.club/archway/archway-620000-pruned.tar
-
 # Steps
 - Setup node
-- Download snapshot
 - Run node
-- Create Validator
 - Setup basic monitoring
-- Additional section
 
 # System requirements
 - CPU: `4 Cores`
@@ -26,74 +15,84 @@ That's the reason we're running node as a service.
 
 
 # Setup node
+
+### Install prerequires: 
+
 ```bash
-# prerequires
-sudo apt install  jq
-# install docker 
-curl -sL get.docker.com | sudo bash
+apt install jq
 
-# set name for your node
-# replace <value> with your value.
-NODENAME=<your-node-name> #example NODENAME=Validatrium
+# download and install GO
+wget https://go.dev/dl/go1.17.5.linux-amd64.tar.gz
+rm -rf /usr/local/go && tar -C /usr/local -xzf go1.17.5.linux-amd64.tar.gz
 
+echo '
+export GOPATH=/usr/local/go
+export GOBIN=$GOPATH/bin
+export PATH=$PATH:$GOBIN' >> $HOME/.bashrc
+source $HOME/.bashrc
+
+# compile binary from source code
+git clone https://github.com/archway-network/archway
+cd archway
+git checkout v0.0.4 # newest v0.0.5 doesn't work right now
+
+make install 
+cd ~/
+
+# create new sudo user
+useradd archway  -mU -G sudo -s /usr/bin/bash
+passwd archway 
+su - archway
+```
+
+### Configure node
+```bash
+# replace <value> with your value
+NODENAME=<your-name> # example NODENAME=Validator
+
+# some usefull variables :D 
 echo "
-alias archwayd='docker run --rm -it --network host -v ~/.archway:/root/.archway archwaynetwork/archwayd:augusta' 
+export GOPATH=/usr/local/go
+export GOBIN=$GOPATH/bin
+export PATH=$PATH:$GOBIN
 
-RPC_ENDPOINT=https://rpc.augusta-1.archway.tech
+. <(archwayd completion)
 
 export ACCOUNT=$NODENAME
-export CHAIN=augusta-1
-" >> ~/.bashrc
-source ~/.bashrc
+export CHAIN=torii-1" >> $HOME/.bashrc
+source $HOME/.bashrc
 
-# init node and create key
+# init node
 archwayd init $ACCOUNT --chain-id $CHAIN
-# do not forget to save a mnemonic! It's the only way to recover your wallet
-archwayd keys add $ACCOUNT
-
-# or recover key if you already have one
-archwayd keys add $ACCOUNT --recover
+# generate key. Save address and mnemonic from output!
+archwayd keys add $ACCOUNT 
 
 # download genesis
-curl -s "$RPC_ENDPOINT/genesis" | jq '.result.genesis' > ~/.archway/config/genesis.json
+curl https://raw.githubusercontent.com/archway-network/testnets/main/torii-1/genesis.json -o ~/.archway/config/genesis.json
 
-# insert seed and peers
-SEED=2f234549828b18cf5e991cc884707eb65e503bb2@34.74.129.75:31076
-PEERS=0d7facb555de00a61f28420e6654a4039c99f63b@23.88.37.54:26656,bd985a14ebbcfa5b73794a1e77d888ec96e940a1@5.9.199.71:26656
-
-sed -i.bak -e's/seeds =*.*/seeds = "'$SEED'"/;s/persistent_peers =*.*/persistent_peers = "'$PEERS'"/' $HOME/.archway/config/config.toml
+# set peers
+PEERS=$(curl -s https://raw.githubusercontent.com/archway-network/testnets/main/torii-1/persistent_peers.txt)
+sed -i.bak 's/persistent_peers = ../persistent_peers = "'$PEERS'"/' ~/.archway/config/config.toml
 
 # set pruning options
 sed -i.bak -e 's/pruning = "default"/pruning = "custom"/;s/pruning-keep-recent = "0"/pruning-keep-recent = "100"/;s/pruning-interval = "0"/pruning-interval = "10"/' $HOME/.archway/config/app.toml
 ```
 
-# Download snapshot
-If you don't want to wait till node is fully synced you can download our snapshot. It's on height ~620000. 
-
+### Run node
 ```bash
-# be sure node is down!
-rm -rf $HOME/.archway/data
-# snapshot size is 24GB, it might take a while till download completed
-wget https://snap.validatrium.club/archway/archway-620000-pruned.tar
-tar -xvf archway-620000-pruned.tar -C .archway/
-```
+# manual start node
+archwayd start
 
-# Run node
-Manual run: 
-```bash
-archwayd start --x-crisis-skip-assert-invariants
-```
 
-Run as service 
-```bash
+# run node as service:
 sudo tee /etc/systemd/system/archwayd.service > /dev/null <<EOF 
 [Unit]
-Description=archwayd node
+Description=archway-node
 After=network-online.target 
 
 [Service]
-User=root
-ExecStart=/bin/bash -c "/usr/bin/docker run --rm --network host -v ~/.archway:/root/.archway archwaynetwork/archwayd:augusta start --x-crisis-skip-assert-invariants"
+User=archway
+ExecStart=/usr/local/go/bin/archwayd start
 Restart=on-failure
 RestartSec=3
 LimitNOFILE=4096
@@ -102,19 +101,9 @@ LimitNOFILE=4096
 WantedBy=multi-user.target 
 EOF
 
-
-systemctl enable archwayd
-systemctl start archwayd
-# logs
+sudo systemctl enable archwayd
+sudo systemctl start archwayd
 journalctl -u archwayd -f
-```
-
-# Create validator
-
-After your node is full synced run: 
-
-```bash
-archwayd tx staking create-validator --amount 0uaugust --from $ACCOUNT --commission-max-change-rate "0.01" --commission-max-rate "0.1" --commission-rate "0.01" --min-self-delegation "1" --pubkey $(archwayd tendermint show-validator) --moniker $ACCOUNT ---chain-id $CHAIN --gas 300000 --fees 3uaugust
 ```
 
 # Setup basic monitoring
